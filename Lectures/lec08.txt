@@ -1,0 +1,189 @@
+Transport Layer: Introduction, basics of UDP and TCP
+====================================================
+
+* We have seen that application layer operates as processes that
+  communicate between hosts. Transport layer provides
+  process-to-process delivery of messages. The underlying network
+  layer provides host-to-host delivery of messages, without any
+  reliability guarantees. So, job of transport layer is to take this
+  host-to-host delivery service from the network layer, and provide
+  process-to-process delivery abstraction to the application layer.
+
+* Processes send messages via sockets. So, we can also think of the
+  transport layer as providing a data delivery service from socket to
+  socket.
+
+* Some terminology: application layer "message" -> transport layer
+  "segment" -> IP/network layer "datagram".
+
+* Main functions of transport layer:
+
+- Multiplexing and demultiplexing (mux/demux): several processes on a
+  host may be sending messages. Each application process is assigned a
+  port number. Transport layer takes the application layer message,
+  appends port number, and passes to network layer. At the receiver
+  end, it hands over message to correct application process based on
+  port number. Both TCP and UDP provide this basic mux/demux
+  functionality. In fact, UDP is a barebones transport layer that
+  provides ONLY this functionality.
+
+- Reliable data delivery: TCP provides reliable data delivery. That
+  is, the application can be assured that the message will reach the
+  other side (or it will know if lost). TCP provides reliability using
+  several mechanisms, on top of a unreliable network layer.
+
+- Congestion control: TCP ensures that data from one application does
+  not swamp all the links and routers on the path. Congestion control
+  is not so much a service to the application as it is a service to
+  the Internet.
+
+* What are function that transport layer cannot provide? It cannot
+  provide bandwidth or delay guarantees because the underlying network
+  layer does not provide guarantees. Note that IP layer does not
+  provide security either, but TCP has special mechanisms (SSL) to
+  provide security over unsecure transport. But bandwidth/delay
+  guarantee is harder.
+
+* Two main transport protocols: TCP and UDP.
+
+* TCP is a connection oriented protocol, i.e., there are a few
+  connection establishment messages before data can be sent from
+  sender to receiver. However, this connection state resides only at
+  end hosts; unlike connections in circuit switching where state is
+  established at all routers on path. The side that initiates
+  connection is called TCP client. The side that responds is called
+  server. Data flow can happen both ways, TCP is full duplex.
+
+* Recall from socket programming: both client and server first create
+  sockets. Client sends a connect request to server IP and port. Then,
+  the "TCP handshake" takes place. TCP client sends a SYN packet to
+  server to initiate connection. Server responds with SYNACK. Client
+  then sends SYN ACK ACK (or simply ACK), along with any data
+  possibly. At this point, the accept call at the server returns,
+  i.e., the server accepts the request, a new client socket is created
+  for this connection, and connection is said to be established. Once
+  connection is established, both client and server may send data
+  through the TCP connection via the sockets. This data exchange
+  translates to read/write on sockets.
+
+* So when a packet arrives at a host, how does TCP know which client
+  socket to deliver message to? TCP uses 4-tuple (source IP, source
+  port, destination IP, destination port) as the demux key to identify
+  appropriate socket. Why can't it just use destination IP and port?
+  Because server can have several sockets open for different clients.
+
+* How is mux/demux done in UDP? Note that there is no handshake in
+  UDP. Sender and receiver applications create sockets, and fill in
+  the destination port and IP in the socket structures. Then they
+  simply send and receive messages using the socket handle. The source
+  and destination port numbers are embedded in the UDP header. Note
+  that a UDP-based server only has one listening socket, not one per
+  client. When a packet reaches the destination IP address (via
+  network layer), the destination port is looked up to identify the
+  correct socket to deliver the message to. That is, the demux "key"
+  is the 2-tuple (destination IP, destination port). 
+
+* Why is demux key different for UDP (2-tuple) vs TCP (4-tuple)?
+  Because TCP maintains a separate socket for every client-server
+  communication (connection-oriented), whereas UDP server processes
+  all clients via the same socket. So, next question, why is TCP
+  connection oriented and why does it have to maintain a separate
+  socket for every connection? Because TCP implements reliability, it
+  is easier with separate sockets. For example, when a message arrives
+  at a socket, it is easy to simply see the source IP/port associated
+  with that socket and send ACK. If you want to send a reply to a UDP
+  message, you need to extract the source IP and port from the UDP
+  header for every message.
+
+* There is not much else to UDP other than mux/demux. UDP is just
+  barebones transport: mux/demux with light error detection (checksum
+  over header: includes port numbers and checksum (IP addresses are from IP
+  header). Lower header overhead than TCP (UDP-8 bytes, TCP-20 bytes).
+
+* Which applications use UDP?
+
+- DNS: simple request reply does not justify the overhead of
+  connection setup of TCP.
+
+- Multimedia applications: they have more control over what data is
+  sent when. For example, if the voice sample is stale, no point in
+  TCP retransmitting it.
+
+* Now, we will understand the congestion control and reliability
+  mechanisms in TCP. Recall, TCP connection setup is the 3-way
+  handshake, after which client and server each have a socket. TCP
+  provides reliable in-order bi-directional byte stream abstraction
+  between these two sockets.
+
+* When sockets are created, a send and receive buffer is
+  allocated. When applications write data into socket, it is placed in
+  the send buffer till TCP transmits it. When data is received by TCP,
+  it is placed in the receive buffer till the application reads it.
+
+* What does TCP do with the data? First, it takes data from the send
+  buffer and makes segments. What size segments? If enough data
+  available, TCP prefers to make segments of size MSS - maximum
+  segment size. How is MSS calculated? TCP MSS (maximum segment size)
+  = MTU (maximum transmission unit allowed by all links on the path) -
+  IP and TCP headers. Usually MTU is 1500 bytes, so MSS is 1500 - 20 -
+  20 = 1460. 
+
+* If TCP segment is larger than MTU on any path, then IP-level
+  fragmentation (we will study this when we see the IP
+  layer). Usually, hosts try to avoid this. So they discover the
+  smallest MTU along the path and use this for MSS calculation, so
+  that one TCP segment is sent as one IP datagram.
+
+* What after segmentation? Sender adds TCP header. Among other things
+  (like port numbers), the TCP header has sequence numbers. Why
+  sequence numbers? Since the channel can reorder and delay packets,
+  sender needs to put a sequence number on packets to tell the
+  receiver which packet is what, so that receiver can suitably
+  reassemble packets. Also, receiver can use the sequence number to
+  tell sender which packets it got (ACKs) for reliability.
+
+* Sequence number can be per-packet or per-byte. In TCP, sequence
+  number is based in bytes. Sequence number of packet is the number of
+  the first byte in the packet. Together with length in the TCP
+  header, we know which packet has which bytes.
+
+* The fundamental mechanism for reliability is acknowledgements. ACKs
+  can be positive ACKs ("I got packet X or bytes Y--Z") or negative
+  ACKs ("I didn't get ..."). ACKs can also be specific to a particular
+  packet ("I got this one") or cumulative ("I got everything up to
+  here"). TCP ACKs are sequence number based and cumulative. TCP ACK
+  indicates the next sequence number expected, saying "I got
+  everything till X".
+
+* What if ACK is lost or corrupted? Then sender will unnecessarily
+  resend packet? So receivers must be capable of handling duplicate
+  segments (seqeuence numbers will help identify duplicates). If
+  sender sends one packet at a time, a one bit sequence number
+  suffices to distinguish a fresh transmission from a duplicate.
+
+* So what if a packet is lost? TCP maintains a timer for every segment
+  it sends. If no ACK within timeout, it must retransmit that
+  segment.(Automatic repeat request or ARQ mechanism) Timeout is
+  estimated by seeing the RTT values in the past. Sequence numbers,
+  ACKs, timeouts, and retransmissions form the base of any protocol
+  that provides reliability.
+
+* How many segments to send? One option is to send a segment and wait
+  for an ACK before moving on. So a simple reliability-based protocol
+  would send one packet, wait for ACK, retransmit as many times as
+  needed, before moving on to next packet. Such "stop-and-wait"
+  protocols waste time, especially if RTTs are long. For example,
+  suppose a data packet takes time "d" to send, and the RTT for
+  getting an ACK is "T". Then, only d/(d+T) fraction of time was used
+  in sending, and the sender was idling the rest of the time. What is
+  the solution? Keep sending packets before waiting for ACKs. Deal
+  with retransmissions later on. This technique is called
+  "pipelining". Note that pipelining is not strictly necessary for a
+  reliable protocol, but is highly desirable for performance reasons.
+
+* With pipelining, sender can have not just one, but a certain maximum
+  number of packets "outstanding" or "unacknowledged". When packets at
+  the beginning of this "window" are acked, the window moves forward
+  over the sequence number space. Hence the name "sliding window"
+  protocols. The maximum number of packets allowed in the window is
+  called the window size. TCP is a sliding window protocol.

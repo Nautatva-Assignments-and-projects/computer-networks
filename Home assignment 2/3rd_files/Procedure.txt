@@ -1,0 +1,6 @@
+Start with the default config. Change the link delay to 50 ms.
+What is the average throughput of the TCP transfer? What is the maximum expected value of throughput? Is the achieved throughput approximately equal to the maximum expected value? If it is not, explain the reason for the difference.
+What other parameters (amongst the ones exposed to you above) can you change to make sure that the throughput is close to the maximum expected value, for this link delay? (Try out a few different simulations, and see what gets you close to the maximum.)
+
+Average thoughput = 0.777Mbps. Maximum value of throughput is 5Mbps. As seen in 2nd question, even this case has a huge diviation from the ideal value This is basically because of the mechanism by which Reno TCP works. As the time delay is high, the time taken for recieveing acknowlegement is high and thus, the cwnd retains its size and thus no packet is sent. This results in a huge delay during the slow start. Thus the overall average falls.
+As, the bandwidth is isn't used completely, so, we can lower the bandwidth so that we get average thorughput equa to maximum expeected value.

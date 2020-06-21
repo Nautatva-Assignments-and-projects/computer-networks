@@ -1,0 +1,164 @@
+Reliability and congestion control in TCP.
+=========================================
+
+* TCP is a sliding window protocol. It maintains a window of
+  outstanding packets. As acks come for the packets, it advances the
+  window forward. It uses acks and retransmissions for reliability,
+  and changes the size of the window for congestion control.
+
+* In a window of packets, what happens if a packet is lost and
+  subsequent packets are received?  The TCP ACK is the next sequence
+  number expected. So, if there is a gap in sequence space or a "hole"
+  due to some packets lost (or reordered), then the ACK number will
+  still indicate the first sequence number expected to fill the
+  hole. Every subsequent packet received after the hole will cause the
+  receiver to send an ACK for the same sequence number. These are
+  called duplicate ACKs. These indicate lost segments. Sender uses 3
+  dupacks to retransmit a segment. This is called fast retransmit, as
+  opposed to timeout-triggered retransmits. 3 dupacks is a form of
+  NACK.
+
+* It seems wasteful to only send the same ACK sequence number (dup
+  acks) and not communicate information about what was actually
+  received beyond the hole. TCP also has a more advanced mechanism
+  called "selective ACKs" or SACKs that can indicate some additional
+  data received beyond a hole. Widely deployed today. 
+
+* What to do with out-of-order packets? You can throw them away, or
+  buffer them. TCP standard doesn't specify what to do, but most
+  receiver implementations buffer out-of-order packets.
+
+* What to retransmit? Suppose window size is N. Suppose current window
+  is from i to i+N-1. Now suppose we know that packet "i" is
+  lost. What should the sender retransmit? Two possible solutions: GBN
+  or SR. GBN or Go-back-N (the sender resends the entire window of packets
+  starting with "i"), or SR / Selective Repeat (sender retransmits only "i"
+  and hopes other packets will reach).
+
+* Clearly, GBN results in many unnecessary transmissions. Why would
+  anyone use it? Receiver simplicity. A receiver does not have to
+  buffer out-of-order packets. A receiver, when it gets the next
+  packet in order, sends an ACK for it. Suppose packet "i" is lost,
+  and receiver gets packet "i+1", then it can throw it away, because
+  sender will retransmit the entire window starting from sequence "i"
+  anyways. Also note that ACKs in GBN are cumulative for this
+  reason. Because a receiver does not process out of order packets, an
+  ack for seq "i" means all packets less than "i" have been received.
+
+* SR is a more sensible choice. When receiver gets a packet out of
+  order, it buffers it, and sends an ACK saying that it got a certain
+  packet. That way, when a timeout of a packet in a window happens,
+  sender can only send the unacked packets.
+
+* Is TCP like GBN or SR? TCP does something in between GBN and SR,
+  closer to SR. TCP sends only one packet that it thinks is lost, not
+  entire window, so not like GBN. TCP receiver buffers out of order
+  segments. But ACK indicates the sequence number that is missing
+  (unlike SR). TCP selective ACK (SACK) option exists to ACK a few out
+  of order segments also. But the main ACK sequence number in TCP
+  header is used to inidcate the first packet that is expected
+  next. TCP with SACK is a lot like SR. 
+
+* Suppose window is packet [i, i+n-1]. Suppose packet "i" has been
+  lost, but receiver has received the other N-1 packets in the
+  window. Note that the receiver is buffering all these N-1 out of
+  order packets now. Even though the sender has gotten N-1 acks, he
+  cannot advance the window to send the next N-1 packets, because that
+  would increase the out-of-order buffer size at receiver. The sender
+  must maintain that the highest seq number sent is only N packets
+  away from the start sequence of the window. So, window size is not
+  the number of unacked / outstanding packets, but rather the
+  differennce between highest seq number sent and highest seq number
+  acked. This is to ensure that the receiver never has to buffer more
+  than N out-of-order packets.
+
+* So far, we have seen ACKs and retransmissions for reliability. Next
+  big question is, what should be size of this sliding window?
+  Ideally, it should be equal to the bandwidth delay product. If you
+  send BDP worth of packets, by the time you finish sending your last
+  packet, you will get ACK for first packet, and you can send the next
+  packet. This process of ACKs triggering new packets is also called
+  "ack-clocking", as acks arrive at the rate at which network is able
+  to send data. So if you send data whenever ack arrives, you are
+  automatically doing the right thing.
+
+* In reality BDP is hard to know. What happens if you send more than
+  BDP? Packets may be queued up behind congested links and take longer
+  to reach (higher RTT). Worse yet, some router buffer may overflow
+  and drop packets. So we must use packet losses or RTT increases as
+  signal to adjust window size and try to learn BDP. 
+
+* TCP performs congestion control as follows. So it maintains a cwnd
+  (congestion window) of the maximum number of bytes it can send from
+  first unacked sequence number. The value of cwnd is determined by
+  congestion control algorithms. As long as there is space in cwnd,
+  sender keeps sending TCP segments of size MSS. ACKs will help in
+  clearing space in cwnd, and also increase and decrease cwnd.
+
+* TCP congestion control has two parts: slow start and congestion
+  avoidance. And optional fast recovery in newer versions (by default
+  now). 
+
+* Initially, TCP starts with cwnd of 1 MSS. On every ack, it increases
+  cwnd by 1 MSS. That is, cwnd doubles evert RTT. Initially sends 1
+  segment. On ack, sends 2 segments. After these 2 acks come back,
+  sends 4 segments etc. TCP rate increases exponentially during slow
+  start. Slow start continues till cwnd reaches "ssthresh" threshold.
+
+* After sshthresh is reached, cwnd increases more slowly, and TCP
+  enters the congestion avoidance state. In congestion avoidance, cwnd
+  increases by one MSS for every RTT. That is, we send cwnd/MSS
+  packets in one RTT, and after this RTT, we want to increase by 1
+  MSS. Since cwnd/MSS acks come back in one RTT, we should increase
+  cwnd by MSS/(cwnd/MSS) for every ACK.
+
+* Now, if we get 3 dupacks, we do fast retransmit of the lost
+  segment. Along with it, we also do fast recovery. Fast recovery can
+  be reached from slow start or congestion avoidance. Again, we set
+  sshthresh = cwnd/2. However, we do not set cwnd all the way to 1
+  MSS. We set it to half the value where congestion occured. Thus this
+  congestion avoidance is also called additive increase multiplicative
+  decrease (AIMD). 
+
+* Finally, fast recovery ends after the loss has been recovered and we
+  get a new ACK (not dupack). Typically, once the hole has been
+  plugged, a large number of segments will be covered by the new ack.
+  We start with the halved value of cwnd (that is stored in
+  sshthresh), and start AIMD congestion avoidance again.
+
+* What does it mean to "halve cwnd"? Suppose you have sent N packets,
+  and now you set cwnd to N/2. It means you cannot send any more
+  packets till N/2 acks come back. 
+
+* Let us see in detail what happens during fast recovery. Suppose
+  window = 8 and packets 1-8 are outstanding. Now suppose 1 is lost,
+  and dupacks start arriving for packet 1. We retransmit 1. However,
+  we won't get a new ACK at least for another RTT. If 1 was only
+  packet lost, then we will get ACK covering all 8 packets after 1
+  RTT. Then even though window size is 4, and we will have no packets
+  in pipeline. In general, drying out of the pipeline lihe this is not
+  needed for mild congestion caused by dupacks.
+
+* So fast recovery does something called cwnd "inflation". That is,
+  for every dupack, we know a packet has left a pipeline, so we send a
+  new segment. In the earlier example, when we get dupacks for
+  segments 2-8, we send segments 9-15. So after 1 RTT, when
+  retransmission of 1 reaches receiver and we get ACK covering packets
+  1-8, we still have some packets in the pipeline. Now, we half the
+  cwnd, wait for ACKs before sending more segments. Note that if cwnd
+  is 8, we cannot have packets 1 and 9-15 outstanding. Recall from
+  last lecture, even though we have only 8 packets outstanding, the
+  window size of 8 doesn't allow this, because window size of 8 means
+  at most 8 packets starting from left edge of window should be
+  outstanding, not any 8 packets. So we temporarily "increase" cwnd by
+  1 segment for every dupack, to allow us to send more packets in the
+  pipeline. This is called cwnd inflation.
+
+* Due to cwnd inflation, when we get 3 dupacks and enter fast
+  recovery, we first set ssthresh = cwnd/2. Then we set cwnd = cwnd +
+  3 MSS (to account for 3 dupacks). Then for every dupack, we set cwnd
+  = cwnd + 1 MSS. After loss is recovered and we get new ACK, we set
+  cwnd to half the value (that is stored in ssthresh), and go to
+  congestion avoidance. So for a short period after entering fast
+  recovery, cwnd actually appears to increase before being set to
+  half the old value. 
